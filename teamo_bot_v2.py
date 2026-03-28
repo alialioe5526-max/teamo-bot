@@ -342,7 +342,8 @@ async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"); return
 
     # ── التسجيل: رقم الهاتف ──
-    if state == ST_PHONE:
+    # يعمل حتى لو أرسل /start بالخطأ في المنتصف
+    if state == ST_PHONE or (text.startswith("+") and len(text) >= 10 and not get_user(uid)):
         if not text.startswith("+") or len(text) < 10:
             await update.message.reply_text("❌ رقم غير صحيح!\nمثال: `+9647701234567`", parse_mode="Markdown"); return
         real_name = context.user_data.get("real_name", update.effective_user.full_name)
