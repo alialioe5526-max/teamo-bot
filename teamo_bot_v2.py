@@ -4,8 +4,8 @@ from datetime import datetime, date, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
-BOT_TOKEN    = "8578221142:AAFe_J9s1EYZwyb1ao5jffZwo5nFy_hpAK0"
-MAIN_ADMIN   = 269900681
+BOT_TOKEN  = "8578221142:AAFe_J9s1EYZwyb1ao5jffZwo5nFy_hpAK0"
+MAIN_ADMIN = 269900681
 WALLET_TRC20 = "TPAgKfYzRdK83Qocc4gXvEVu4jPKfeuer5"
 
 REFERRAL_COMMISSIONS = {
@@ -29,14 +29,14 @@ PACKAGES = {
 PACKAGE_DAYS = 365
 MIN_WITHDRAW = 10
 
-ST_NAME      = "WAITING_NAME"
-ST_PHONE     = "WAITING_PHONE"
-ST_RECEIPT   = "WAITING_RECEIPT"
-ST_WALLET    = "WAITING_WALLET"
-ST_WITHDRAW  = "WAITING_WITHDRAW"
-ST_BROADCAST = "WAITING_BROADCAST"
-ST_SETWALLET = "WAITING_SETWALLET"
-ST_ADDLINK   = "WAITING_ADDLINK"
+ST_NAME       = "WAITING_NAME"
+ST_PHONE      = "WAITING_PHONE"
+ST_RECEIPT    = "WAITING_RECEIPT"
+ST_WALLET     = "WAITING_WALLET"
+ST_WITHDRAW   = "WAITING_WITHDRAW"
+ST_BROADCAST  = "WAITING_BROADCAST"
+ST_SETWALLET  = "WAITING_SETWALLET"
+ST_ADDLINK    = "WAITING_ADDLINK"
 ST_SCREENSHOT = "WAITING_SCREENSHOT"
 
 BTN_TASKS    = "📋 مهامي اليومية"
@@ -64,7 +64,6 @@ def back_kb():
 def admin_kb():
     return ReplyKeyboardMarkup([[BTN_HOME, BTN_ADMIN]], resize_keyboard=True)
 
-# ===================== DB =====================
 def init_db():
     conn = sqlite3.connect("teamo.db")
     c = conn.cursor()
@@ -87,26 +86,30 @@ def init_db():
     c.execute("CREATE TABLE IF NOT EXISTS user_counter (id INTEGER PRIMARY KEY, count INTEGER DEFAULT 0)")
     c.execute("INSERT OR IGNORE INTO user_counter (id,count) VALUES (1,0)")
     c.execute("""CREATE TABLE IF NOT EXISTS packages_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER,
-        package TEXT, price REAL, status TEXT DEFAULT 'pending', receipt TEXT, created_at TEXT
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER, package TEXT, price REAL,
+        status TEXT DEFAULT 'pending', receipt TEXT, created_at TEXT
     )""")
     c.execute("""CREATE TABLE IF NOT EXISTS daily_tasks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER,
-        task_date TEXT, tasks_done INTEGER DEFAULT 0, earned REAL DEFAULT 0
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER, task_date TEXT,
+        tasks_done INTEGER DEFAULT 0, earned REAL DEFAULT 0
     )""")
     c.execute("""CREATE TABLE IF NOT EXISTS task_screenshots (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER,
-        task_date TEXT, task_num INTEGER, file_id TEXT,
-        status TEXT DEFAULT 'pending', created_at TEXT
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER, task_date TEXT, task_num INTEGER,
+        file_id TEXT, status TEXT DEFAULT 'pending', created_at TEXT
     )""")
     c.execute("CREATE TABLE IF NOT EXISTS task_links (id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT, active INTEGER DEFAULT 1)")
     c.execute("""CREATE TABLE IF NOT EXISTS withdrawals (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER,
-        amount REAL, wallet TEXT, status TEXT DEFAULT 'pending', created_at TEXT
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER, amount REAL, wallet TEXT,
+        status TEXT DEFAULT 'pending', created_at TEXT
     )""")
     c.execute("""CREATE TABLE IF NOT EXISTS referral_earnings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER,
-        from_user INTEGER, level INTEGER, amount REAL, package TEXT, created_at TEXT
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER, from_user INTEGER, level INTEGER,
+        amount REAL, package TEXT, created_at TEXT
     )""")
     c.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
     c.execute("INSERT OR IGNORE INTO settings (key,value) VALUES ('wallet',?)", (WALLET_TRC20,))
@@ -114,8 +117,8 @@ def init_db():
     c.execute("SELECT COUNT(*) FROM task_links")
     if c.fetchone()[0] == 0:
         c.execute("INSERT INTO task_links (url) VALUES (?)", ("https://youtube.com/watch?v=dQw4w9WgXcQ",))
-    for col_def in ["real_name TEXT", "package_expires TEXT", "is_admin INTEGER DEFAULT 0"]:
-        try: c.execute(f"ALTER TABLE users ADD COLUMN {col_def}")
+    for col in ["real_name TEXT", "package_expires TEXT", "is_admin INTEGER DEFAULT 0"]:
+        try: c.execute(f"ALTER TABLE users ADD COLUMN {col}")
         except: pass
     conn.commit(); conn.close()
 
@@ -124,7 +127,8 @@ def db(): return sqlite3.connect("teamo.db")
 def get_setting(key):
     conn = db(); c = conn.cursor()
     c.execute("SELECT value FROM settings WHERE key=?", (key,))
-    r = c.fetchone(); conn.close(); return r[0] if r else None
+    r = c.fetchone(); conn.close()
+    return r[0] if r else None
 
 def set_setting(key, value):
     conn = db(); c = conn.cursor()
@@ -166,7 +170,8 @@ def register_user(uid, username, real_name, phone, referred_by=None):
 def get_user_by_ref(ref):
     conn = db(); c = conn.cursor()
     c.execute("SELECT user_id FROM users WHERE ref_code=?", (ref,))
-    r = c.fetchone(); conn.close(); return r[0] if r else None
+    r = c.fetchone(); conn.close()
+    return r[0] if r else None
 
 def get_ancestors(uid, levels=6):
     anc = []; conn = db(); c = conn.cursor(); cur = uid
@@ -209,7 +214,16 @@ def get_today(uid):
 def get_task_link():
     conn = db(); c = conn.cursor()
     c.execute("SELECT url FROM task_links WHERE active=1 ORDER BY RANDOM() LIMIT 1")
-    r = c.fetchone(); conn.close(); return r[0] if r else "https://youtube.com"
+    r = c.fetchone(); conn.close()
+    return r[0] if r else "https://youtube.com"
+
+def get_all_admins():
+    admins = [MAIN_ADMIN]
+    conn = db(); c = conn.cursor()
+    c.execute("SELECT user_id FROM users WHERE is_admin=1")
+    for row in c.fetchall():
+        if row[0] not in admins: admins.append(row[0])
+    conn.close(); return admins
 
 def get_stats():
     conn = db(); c = conn.cursor()
@@ -220,7 +234,6 @@ def get_stats():
     c.execute("SELECT SUM(balance) FROM users"); tb = c.fetchone()[0] or 0
     conn.close(); return total, pp, wp, sp, tb
 
-# ===================== صفحة رئيسية =====================
 async def send_home(message, uid):
     u = get_user(uid)
     if not u: return
@@ -244,10 +257,8 @@ async def send_home(message, uid):
         reply_markup=kb, parse_mode="Markdown"
     )
 
-# ===================== /start =====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    user = update.effective_user
     args = context.args
 
     referred_by = None; referrer = None
@@ -261,19 +272,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_home(update.message, uid)
         return
 
-    # إذا كان في منتصف التسجيل — أكمل من حيث توقف
+    # إذا في منتصف التسجيل — أكمل
     state = context.user_data.get("state")
     if state == ST_PHONE:
         await update.message.reply_text(
-            "📱 أكمل التسجيل — أرسل رقم هاتفك مع رمز الدولة:\n\n"
-            "🇮🇶 `+9647701234567`\n🇸🇦 `+966501234567`\n🇦🇪 `+971501234567`",
+            "📱 أكمل التسجيل — أرسل رقم هاتفك:\n\n🇮🇶 `+9647701234567`",
             parse_mode="Markdown"); return
     if state == ST_NAME:
         await update.message.reply_text(
             "📝 أكمل التسجيل — أرسل *اسمك الثلاثي*:",
             parse_mode="Markdown"); return
 
-    # مستخدم جديد
     context.user_data["referred_by"] = referred_by
     context.user_data["state"] = ST_NAME
 
@@ -296,39 +305,31 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-# ===================== معالج الرسائل =====================
 async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     state = context.user_data.get("state")
     text = update.message.text.strip() if update.message.text else ""
 
-    # أزرار التنقل
+    # أزرار التنقل دائماً تعمل
     if text in [BTN_HOME, BTN_BACK]:
         context.user_data.clear()
         await send_home(update.message, uid); return
-
     if text == BTN_ADMIN and is_admin(uid):
         await show_admin(update.message, uid); return
-
     if text == BTN_TASKS:
         await show_tasks(update.message, uid); return
-
     if text == BTN_WALLET:
         await show_wallet(update.message, uid); return
-
     if text == BTN_PACKAGES:
         await show_packages(update.message); return
-
     if text == BTN_REFERRAL:
         await show_referrals(update.message, uid, context); return
-
     if text == BTN_WITHDRAW:
         await start_withdraw(update.message, uid, context); return
-
     if text == BTN_HELP:
         await show_help(update.message); return
 
-    # ── التسجيل: الاسم الثلاثي ──
+    # ── الاسم الثلاثي ──
     if state == ST_NAME:
         if len(text.split()) < 2:
             await update.message.reply_text(
@@ -341,12 +342,12 @@ async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🇮🇶 `+9647701234567`\n🇸🇦 `+966501234567`\n🇦🇪 `+971501234567`",
             parse_mode="Markdown"); return
 
-    # ── التسجيل: رقم الهاتف ──
-    # يعمل حتى لو أرسل /start بالخطأ في المنتصف
+    # ── رقم الهاتف — يعمل حتى بدون حالة ──
     if state == ST_PHONE or (text.startswith("+") and len(text) >= 10 and not get_user(uid)):
         if not text.startswith("+") or len(text) < 10:
-            await update.message.reply_text("❌ رقم غير صحيح!\nمثال: `+9647701234567`", parse_mode="Markdown"); return
-        real_name = context.user_data.get("real_name", update.effective_user.full_name)
+            await update.message.reply_text(
+                "❌ رقم غير صحيح!\nمثال: `+9647701234567`", parse_mode="Markdown"); return
+        real_name = context.user_data.get("real_name") or update.effective_user.full_name
         referred_by = context.user_data.get("referred_by")
         u = update.effective_user
         register_user(uid, u.username or "", real_name, text, referred_by)
@@ -378,12 +379,12 @@ async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton(f"✅ قبول #{rid}", callback_data=f"ap_{rid}"),
             InlineKeyboardButton(f"❌ رفض #{rid}", callback_data=f"rj_{rid}")
         ]])
-        for adm_id in get_all_admins():
+        for adm in get_all_admins():
             try:
                 if update.message.photo:
-                    await context.bot.send_photo(adm_id, file_id, caption=caption, reply_markup=kb, parse_mode="Markdown")
+                    await context.bot.send_photo(adm, file_id, caption=caption, reply_markup=kb, parse_mode="Markdown")
                 else:
-                    await context.bot.send_document(adm_id, file_id, caption=caption, reply_markup=kb, parse_mode="Markdown")
+                    await context.bot.send_document(adm, file_id, caption=caption, reply_markup=kb, parse_mode="Markdown")
             except: pass
         context.user_data.clear()
         await update.message.reply_text(
@@ -404,16 +405,14 @@ async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sid = c.lastrowid; conn.commit(); conn.close()
         u = get_user(uid)
         caption = (f"📸 *سكرين شوت مهمة #{sid}*\n\n"
-                   f"👤 {u[4]} | #{u[1]:04d}\n"
-                   f"📱 {u[5]}\n"
-                   f"📋 المهمة رقم: {task_num}\n"
-                   f"📅 {today}")
+                   f"👤 {u[4]} | #{u[1]:04d}\n📱 {u[5]}\n"
+                   f"📋 المهمة: {task_num}\n📅 {today}")
         kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton(f"✅ قبول المهمة #{sid}", callback_data=f"sap_{sid}"),
+            InlineKeyboardButton(f"✅ قبول #{sid}", callback_data=f"sap_{sid}"),
             InlineKeyboardButton(f"❌ رفض #{sid}", callback_data=f"srj_{sid}")
         ]])
-        for adm_id in get_all_admins():
-            try: await context.bot.send_photo(adm_id, file_id, caption=caption, reply_markup=kb, parse_mode="Markdown")
+        for adm in get_all_admins():
+            try: await context.bot.send_photo(adm, file_id, caption=caption, reply_markup=kb, parse_mode="Markdown")
             except: pass
         context.user_data.clear()
         await update.message.reply_text(
@@ -423,12 +422,13 @@ async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── محفظة المستخدم ──
     if state == ST_WALLET:
         if len(text) < 30:
-            await update.message.reply_text("❌ عنوان غير صحيح."); return
+            await update.message.reply_text("❌ عنوان غير صحيح. أعد المحاولة:"); return
         conn = db(); c = conn.cursor()
         c.execute("UPDATE users SET wallet=? WHERE user_id=?", (text, uid))
         conn.commit(); conn.close()
         context.user_data.clear()
-        await update.message.reply_text(f"✅ *تم حفظ محفظتك!*\n\n`{text}`",
+        await update.message.reply_text(
+            f"✅ *تم حفظ محفظتك!*\n\n`{text}`",
             reply_markup=main_kb(), parse_mode="Markdown"); return
 
     # ── السحب ──
@@ -450,15 +450,15 @@ async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton(f"✅ قبول #{wid}", callback_data=f"wap_{wid}"),
             InlineKeyboardButton(f"❌ رفض #{wid}", callback_data=f"wrj_{wid}")
         ]])
-        for adm_id in get_all_admins():
+        for adm in get_all_admins():
             try:
-                await context.bot.send_message(adm_id,
+                await context.bot.send_message(adm,
                     f"💸 *طلب سحب #{wid}*\n\n👤 {u[4]} | #{u[1]:04d}\n📱 {u[5]}\n💰 *{amount:.2f}$*\n👛 `{wallet}`",
                     reply_markup=kb, parse_mode="Markdown")
             except: pass
         context.user_data.clear()
         await update.message.reply_text(
-            f"✅ *تم إرسال طلب السحب!*\n\nالمبلغ: *{amount:.2f}$*\n⏳ المعالجة خلال 24-48 ساعة",
+            f"✅ *تم إرسال طلب السحب!*\n\nالمبلغ: *{amount:.2f}$*\n⏳ خلال 24-48 ساعة",
             reply_markup=main_kb(), parse_mode="Markdown"); return
 
     # ── أدمن: رسالة جماعية ──
@@ -473,7 +473,6 @@ async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ أُرسلت لـ {sent} | ❌ فشل مع {failed}",
             reply_markup=admin_kb()); return
 
-    # ── أدمن: تغيير المحفظة ──
     if state == ST_SETWALLET and is_admin(uid):
         if len(text) < 20:
             await update.message.reply_text("❌ عنوان غير صحيح."); return
@@ -481,7 +480,6 @@ async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ تم تغيير محفظة الاستلام:\n`{text}`",
             reply_markup=admin_kb(), parse_mode="Markdown"); return
 
-    # ── أدمن: إضافة رابط ──
     if state == ST_ADDLINK and is_admin(uid):
         if not text.startswith("http"):
             await update.message.reply_text("❌ أرسل رابطاً صحيحاً."); return
@@ -491,7 +489,6 @@ async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ تمت إضافة الرابط:\n{text}",
             reply_markup=admin_kb()); return
 
-# ===================== صفحات المستخدم =====================
 async def show_tasks(message, uid):
     u = get_user(uid)
     if not u or not u[7] or not pkg_active(u):
@@ -571,32 +568,27 @@ async def start_withdraw(message, uid, context):
 async def show_help(message):
     await message.reply_text(
         "ℹ️ *كيفية الاستخدام*\n\n1️⃣ اشترِ باقة وأرسل وصل الدفع\n2️⃣ انتظر التفعيل (24 ساعة)\n"
-        "3️⃣ أكمل مهامك اليومية وأرسل سكرين شوت\n4️⃣ ادعُ أصدقاءك واربح 6 مستويات\n"
+        "3️⃣ أكمل مهامك وأرسل سكرين شوت\n4️⃣ ادعُ أصدقاءك واربح 6 مستويات\n"
         "5️⃣ اسحب عبر USDT TRC20\n\n"
         f"📅 مدة الباقة: *{PACKAGE_DAYS} يوم*\n💸 الحد الأدنى: *{MIN_WITHDRAW}$*",
         reply_markup=back_kb(), parse_mode="Markdown")
-
-# ===================== لوحة الأدمن =====================
-def get_all_admins():
-    admins = [MAIN_ADMIN]
-    conn = db(); c = conn.cursor()
-    c.execute("SELECT user_id FROM users WHERE is_admin=1")
-    for row in c.fetchall():
-        if row[0] not in admins: admins.append(row[0])
-    conn.close(); return admins
 
 async def show_admin(message, uid):
     total, pp, wp, sp, tb = get_stats()
     tasks_open = is_tasks_open()
     toggle = "🔴 قفل المهام" if tasks_open else "🟢 فتح المهام"
     await message.reply_text(
-        f"👑 *لوحة الأدمن*\n\n👥 المستخدمون: *{total}*\n⏳ طلبات شراء: *{pp}*\n"
-        f"💸 طلبات سحب: *{wp}*\n📸 سكرين شوت: *{sp}*\n💰 الأرصدة: *{tb:.2f}$*\n\n{tasks_txt()}",
+        f"👑 *لوحة الأدمن*\n\n"
+        f"👥 المستخدمون: *{total}*\n"
+        f"⏳ طلبات شراء: *{pp}*\n"
+        f"💸 طلبات سحب: *{wp}*\n"
+        f"📸 سكرين شوت: *{sp}*\n"
+        f"💰 الأرصدة: *{tb:.2f}$*\n\n{tasks_txt()}",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("👥 المستخدمون", callback_data="au"),
-             InlineKeyboardButton("📊 الإحصائيات", callback_data="as")],
-            [InlineKeyboardButton("⏳ طلبات الشراء", callback_data="ap"),
-             InlineKeyboardButton("💸 طلبات السحب", callback_data="aw")],
+             InlineKeyboardButton("📊 الإحصائيات", callback_data="as_")],
+            [InlineKeyboardButton("⏳ طلبات الشراء", callback_data="ap_list"),
+             InlineKeyboardButton("💸 طلبات السحب", callback_data="aw_list")],
             [InlineKeyboardButton("📸 سكرين شوت", callback_data="ass"),
              InlineKeyboardButton("🎬 الفيديوهات", callback_data="al")],
             [InlineKeyboardButton("👛 تغيير المحفظة", callback_data="awt"),
@@ -605,22 +597,17 @@ async def show_admin(message, uid):
         ]),
         parse_mode="Markdown")
 
-# ===================== معالج الأزرار =====================
 async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
     uid = q.from_user.id; data = q.data
 
-    # ── مهمة: إرسال سكرين شوت ──
     if data.startswith("do_task_"):
         task_num = int(data[8:])
         context.user_data["state"] = ST_SCREENSHOT
         context.user_data["task_num"] = task_num
         await q.edit_message_text(
             f"📸 *تأكيد المهمة {task_num}*\n\n"
-            f"أرسل سكرين شوت يُثبت:\n"
-            f"✅ مشاهدة الفيديو\n"
-            f"✅ الاشتراك في القناة\n"
-            f"✅ الإعجاب بالفيديو\n\n"
+            f"أرسل سكرين شوت يُثبت:\n✅ مشاهدة الفيديو\n✅ الاشتراك بالقناة\n✅ الإعجاب بالفيديو\n\n"
             f"⚠️ السكرين شوت لازم يكون من داخل يوتيوب ويُظهر الاشتراك والإعجاب",
             parse_mode="Markdown")
 
@@ -660,26 +647,23 @@ async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📤 *وصل الدفع — باقة {pkg_name}*\n\nأرسل صورة الوصل الآن 👇\n\n⏳ سيتم التفعيل خلال 24 ساعة",
             parse_mode="Markdown")
 
-    # ══ أدمن: السكرين شوت ══
     elif data.startswith("sap_") and is_admin(uid):
         sid = int(data[4:])
         conn = db(); c = conn.cursor()
         c.execute("SELECT user_id,task_num,task_date FROM task_screenshots WHERE id=? AND status='pending'", (sid,))
         row = c.fetchone()
-        if not row:
-            await q.answer("❌ مُعالَج مسبقاً"); conn.close(); return
+        if not row: await q.answer("❌ مُعالَج مسبقاً"); conn.close(); return
         target_uid, task_num, task_date = row
         c.execute("UPDATE task_screenshots SET status='approved' WHERE id=?", (sid,))
-        # إضافة المهمة للمستخدم
         target_user = get_user(target_uid)
+        per_task = 0
         if target_user and target_user[7]:
             pkg = PACKAGES[target_user[7]]; per_task = pkg["per_task"]
             c.execute("SELECT tasks_done,earned FROM daily_tasks WHERE user_id=? AND task_date=?", (target_uid, task_date))
             tr = c.fetchone()
             if tr:
-                new_done = tr[0] + 1; new_earned = tr[1] + per_task
-                c.execute("UPDATE daily_tasks SET tasks_done=?,earned=? WHERE user_id=? AND task_date=?",
-                          (new_done, new_earned, target_uid, task_date))
+                c.execute("UPDATE daily_tasks SET tasks_done=tasks_done+1,earned=earned+? WHERE user_id=? AND task_date=?",
+                          (per_task, target_uid, task_date))
             else:
                 c.execute("INSERT INTO daily_tasks (user_id,task_date,tasks_done,earned) VALUES (?,?,?,?)",
                           (target_uid, task_date, 1, per_task))
@@ -690,7 +674,8 @@ async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"✅ *تمت الموافقة على مهمتك!*\n\n💰 ربحت: *{per_task:.2f}$*",
                 reply_markup=main_kb(), parse_mode="Markdown")
         except: pass
-        await q.edit_message_caption(caption=f"✅ تمت الموافقة على السكرين شوت #{sid}")
+        try: await q.edit_message_caption(caption=f"✅ تمت الموافقة على السكرين شوت #{sid}")
+        except: await q.edit_message_text(f"✅ تمت الموافقة على السكرين شوت #{sid}")
 
     elif data.startswith("srj_") and is_admin(uid):
         sid = int(data[4:])
@@ -702,9 +687,9 @@ async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if row:
             try: await context.bot.send_message(row[0], "❌ تم رفض السكرين شوت. أعد المحاولة بصورة واضحة.")
             except: pass
-        await q.edit_message_caption(caption=f"❌ تم رفض السكرين شوت #{sid}")
+        try: await q.edit_message_caption(caption=f"❌ تم رفض السكرين شوت #{sid}")
+        except: await q.edit_message_text(f"❌ تم رفض السكرين شوت #{sid}")
 
-    # ══ أدمن: قبول/رفض الشراء ══
     elif data.startswith("ap_") and is_admin(uid):
         rid = int(data[3:])
         conn = db(); c = conn.cursor()
@@ -722,7 +707,8 @@ async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🎉 *تم تفعيل باقتك {pkg_name}!*\n\n📅 صالحة حتى: *{expires}*\n\nابدأ بإكمال مهامك اليومية 💰",
                 reply_markup=main_kb(), parse_mode="Markdown")
         except: pass
-        await q.edit_message_caption(caption=f"✅ تم تفعيل {pkg_name} — طلب #{rid}\n📅 تنتهي: {expires}")
+        try: await q.edit_message_caption(caption=f"✅ تم تفعيل {pkg_name} — طلب #{rid}\n📅 تنتهي: {expires}")
+        except: await q.edit_message_text(f"✅ تم تفعيل {pkg_name} — طلب #{rid}\n📅 تنتهي: {expires}")
 
     elif data.startswith("rj_") and is_admin(uid):
         rid = int(data[3:])
@@ -734,9 +720,9 @@ async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if row:
             try: await context.bot.send_message(row[0], "❌ تم رفض وصل الدفع. تواصل مع الدعم.")
             except: pass
-        await q.edit_message_caption(caption=f"❌ تم رفض الطلب #{rid}")
+        try: await q.edit_message_caption(caption=f"❌ تم رفض الطلب #{rid}")
+        except: await q.edit_message_text(f"❌ تم رفض الطلب #{rid}")
 
-    # ══ أدمن: قبول/رفض السحب ══
     elif data.startswith("wap_") and is_admin(uid):
         wid = int(data[4:])
         conn = db(); c = conn.cursor()
@@ -767,7 +753,6 @@ async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: pass
         await q.edit_message_text(f"❌ تم رفض السحب #{wid} وإعادة الرصيد")
 
-    # ══ أدمن: الأزرار ══
     elif data == "at" and is_admin(uid):
         cur = get_setting("tasks_open")
         new = "0" if cur == "1" else "1"
@@ -779,9 +764,9 @@ async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ المهام الآن: *{status}*\n\n👥 {total} | ⏳{pp} | 💸{wp} | 📸{sp}\n\n{tasks_txt()}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("👥 المستخدمون", callback_data="au"),
-                 InlineKeyboardButton("📊 الإحصائيات", callback_data="as")],
-                [InlineKeyboardButton("⏳ طلبات الشراء", callback_data="ap"),
-                 InlineKeyboardButton("💸 طلبات السحب", callback_data="aw")],
+                 InlineKeyboardButton("📊 الإحصائيات", callback_data="as_")],
+                [InlineKeyboardButton("⏳ طلبات الشراء", callback_data="ap_list"),
+                 InlineKeyboardButton("💸 طلبات السحب", callback_data="aw_list")],
                 [InlineKeyboardButton("📸 سكرين شوت", callback_data="ass"),
                  InlineKeyboardButton("🎬 الفيديوهات", callback_data="al")],
                 [InlineKeyboardButton("👛 تغيير المحفظة", callback_data="awt"),
@@ -789,7 +774,7 @@ async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("📢 رسالة جماعية", callback_data="ab")]
             ]), parse_mode="Markdown")
 
-    elif data == "as" and is_admin(uid):
+    elif data == "as_" and is_admin(uid):
         total, pp, wp, sp, tb = get_stats(); wallet = get_setting("wallet")
         await q.edit_message_text(
             f"📊 *الإحصائيات*\n\n👥 المستخدمون: *{total}*\n⏳ شراء معلق: *{pp}*\n"
@@ -800,11 +785,11 @@ async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "au" and is_admin(uid):
         conn = db(); c = conn.cursor()
-        c.execute("SELECT serial_no,real_name,phone,package,balance,package_expires,user_id FROM users ORDER BY serial_no")
+        c.execute("SELECT serial_no,real_name,phone,package,balance,package_expires FROM users ORDER BY serial_no")
         users = c.fetchall(); conn.close()
         text = f"👥 *المستخدمون ({len(users)})*\n\n"
         for u in users[:25]:
-            serial, name, phone, pkg, balance, expires, u_id = u
+            serial, name, phone, pkg, balance, expires = u
             exp = f" | ⏳{expires}" if expires else ""
             text += f"*#{serial:04d}* | {name or '—'}\n📱{phone or '—'} | 📦{pkg or '—'}{exp} | 💰{balance:.2f}$\n\n"
         if len(users) > 25: text += f"... و {len(users)-25} آخر"
@@ -812,7 +797,7 @@ async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="aback")]]),
             parse_mode="Markdown")
 
-    elif data == "ap" and is_admin(uid):
+    elif data == "ap_list" and is_admin(uid):
         conn = db(); c = conn.cursor()
         c.execute("""SELECT p.id,u.serial_no,u.real_name,u.phone,p.package,p.price
                      FROM packages_history p JOIN users u ON p.user_id=u.user_id
@@ -830,7 +815,7 @@ async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb.append([InlineKeyboardButton("🔙 رجوع", callback_data="aback")])
         await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
-    elif data == "aw" and is_admin(uid):
+    elif data == "aw_list" and is_admin(uid):
         conn = db(); c = conn.cursor()
         c.execute("""SELECT w.id,u.serial_no,u.real_name,u.phone,w.amount,w.wallet
                      FROM withdrawals w JOIN users u ON w.user_id=u.user_id
@@ -850,15 +835,10 @@ async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "ass" and is_admin(uid):
         conn = db(); c = conn.cursor()
-        c.execute("""SELECT s.id,u.serial_no,u.real_name,s.task_num,s.task_date,s.file_id
-                     FROM task_screenshots s JOIN users u ON s.user_id=u.user_id
-                     WHERE s.status='pending' ORDER BY s.id""")
-        shots = c.fetchall(); conn.close()
-        if not shots:
-            await q.edit_message_text("✅ لا توجد سكرين شوت معلقة",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="aback")]])); return
+        c.execute("SELECT COUNT(*) FROM task_screenshots WHERE status='pending'")
+        sp = c.fetchone()[0]; conn.close()
         await q.edit_message_text(
-            f"📸 *سكرين شوت المهام ({len(shots)})*\n\nاضغط على زر القبول/الرفض في كل صورة أُرسلت لك 👆",
+            f"📸 *سكرين شوت المهام*\n\nمعلق: *{sp}*\n\nالسكرين شوت يُرسل لك مباشرة مع أزرار القبول والرفض 👆",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="aback")]]),
             parse_mode="Markdown")
 
@@ -898,7 +878,8 @@ async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "awt" and is_admin(uid):
         context.user_data["state"] = ST_SETWALLET
         wallet = get_setting("wallet")
-        await q.edit_message_text(f"👛 *تغيير محفظة الاستلام*\n\nالحالية:\n`{wallet}`\n\nأرسل العنوان الجديد:",
+        await q.edit_message_text(
+            f"👛 *تغيير محفظة الاستلام*\n\nالحالية:\n`{wallet}`\n\nأرسل العنوان الجديد:",
             parse_mode="Markdown")
 
     elif data == "ab" and is_admin(uid):
@@ -913,9 +894,9 @@ async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"👑 *لوحة الأدمن*\n\n👥 {total} | ⏳{pp} | 💸{wp} | 📸{sp}\n\n{tasks_txt()}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("👥 المستخدمون", callback_data="au"),
-                 InlineKeyboardButton("📊 الإحصائيات", callback_data="as")],
-                [InlineKeyboardButton("⏳ طلبات الشراء", callback_data="ap"),
-                 InlineKeyboardButton("💸 طلبات السحب", callback_data="aw")],
+                 InlineKeyboardButton("📊 الإحصائيات", callback_data="as_")],
+                [InlineKeyboardButton("⏳ طلبات الشراء", callback_data="ap_list"),
+                 InlineKeyboardButton("💸 طلبات السحب", callback_data="aw_list")],
                 [InlineKeyboardButton("📸 سكرين شوت", callback_data="ass"),
                  InlineKeyboardButton("🎬 الفيديوهات", callback_data="al")],
                 [InlineKeyboardButton("👛 تغيير المحفظة", callback_data="awt"),
@@ -923,15 +904,13 @@ async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("📢 رسالة جماعية", callback_data="ab")]
             ]), parse_mode="Markdown")
 
-# ===================== أوامر الأدمن =====================
 async def admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if not is_admin(uid): return
     await show_admin(update.message, uid)
     await update.message.reply_text("✅ أنت في وضع الأدمن", reply_markup=admin_kb())
 
-async def make_admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر /makeadmin user_id — لجعل شخص أدمن مشارك"""
+async def makeadmin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != MAIN_ADMIN: return
     if not context.args:
         await update.message.reply_text("❌ الصيغة: /makeadmin user_id"); return
@@ -945,14 +924,13 @@ async def make_admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ تم تعيين *{name}* أدمناً مشاركاً", parse_mode="Markdown")
         try:
             await context.bot.send_message(target_id,
-                "🎉 *تم تعيينك أدمناً مشاركاً في TEAMO!*\n\nاستخدم /admin للوصول للوحة التحكم",
+                "🎉 *تم تعيينك أدمناً مشاركاً في TEAMO!*\n\nاستخدم /admin للوحة التحكم",
                 reply_markup=admin_kb(), parse_mode="Markdown")
         except: pass
     except Exception as e:
         await update.message.reply_text(f"❌ خطأ: {e}")
 
-async def remove_admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر /removeadmin user_id"""
+async def removeadmin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != MAIN_ADMIN: return
     if not context.args:
         await update.message.reply_text("❌ الصيغة: /removeadmin user_id"); return
@@ -966,7 +944,6 @@ async def remove_admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ خطأ: {e}")
 
 async def activate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر /activate user_id package — تفعيل باقة يدوياً"""
     if not is_admin(update.effective_user.id): return
     if len(context.args) < 2:
         await update.message.reply_text("❌ الصيغة: /activate user_id باقة\nمثال: /activate 123456 A1"); return
@@ -974,13 +951,14 @@ async def activate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target_id = int(context.args[0])
         pkg_name = context.args[1].upper()
         if pkg_name not in PACKAGES:
-            await update.message.reply_text(f"❌ باقة غير صحيحة. الباقات: {', '.join(PACKAGES.keys())}"); return
+            await update.message.reply_text(f"❌ الباقات المتاحة: {', '.join(PACKAGES.keys())}"); return
         activate_pkg(target_id, pkg_name)
         distribute_commissions(target_id, pkg_name)
         expires = (datetime.now() + timedelta(days=PACKAGE_DAYS)).strftime("%Y-%m-%d")
         target = get_user(target_id)
         name = target[4] if target else str(target_id)
-        await update.message.reply_text(f"✅ تم تفعيل باقة *{pkg_name}* للمستخدم *{name}*\n📅 تنتهي: {expires}",
+        await update.message.reply_text(
+            f"✅ تم تفعيل باقة *{pkg_name}* للمستخدم *{name}*\n📅 تنتهي: {expires}",
             parse_mode="Markdown")
         try:
             await context.bot.send_message(target_id,
@@ -990,14 +968,13 @@ async def activate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ خطأ: {e}")
 
-# ===================== تشغيل =====================
 def main():
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_cmd))
-    app.add_handler(CommandHandler("makeadmin", make_admin_cmd))
-    app.add_handler(CommandHandler("removeadmin", remove_admin_cmd))
+    app.add_handler(CommandHandler("makeadmin", makeadmin_cmd))
+    app.add_handler(CommandHandler("removeadmin", removeadmin_cmd))
     app.add_handler(CommandHandler("activate", activate_cmd))
     app.add_handler(CallbackQueryHandler(btn_handler))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, msg_handler))
