@@ -261,6 +261,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_home(update.message, uid)
         return
 
+    # إذا كان في منتصف التسجيل — أكمل من حيث توقف
+    state = context.user_data.get("state")
+    if state == ST_PHONE:
+        await update.message.reply_text(
+            "📱 أكمل التسجيل — أرسل رقم هاتفك مع رمز الدولة:\n\n"
+            "🇮🇶 `+9647701234567`\n🇸🇦 `+966501234567`\n🇦🇪 `+971501234567`",
+            parse_mode="Markdown"); return
+    if state == ST_NAME:
+        await update.message.reply_text(
+            "📝 أكمل التسجيل — أرسل *اسمك الثلاثي*:",
+            parse_mode="Markdown"); return
+
     # مستخدم جديد
     context.user_data["referred_by"] = referred_by
     context.user_data["state"] = ST_NAME
