@@ -8,8 +8,8 @@ from telegram.ext import (
 )
 
 # ===================== إعدادات =====================
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"   # ← توكن البوت
-ADMIN_ID  = 123456789               # ← ID الأدمن
+BOT_TOKEN = "8578221142:AAFe_J9s1EYZwyb1ao5jffZwo5nFy_hpAK0"   # ← توكن البوت
+ADMIN_ID  = 269900681               # ← ID الأدمن
 WALLET_TRC20 = "TXyz1234...YOUR_WALLET"  # ← محفظة USDT TRC20 للاستلام
 
 # مستويات الإحالة والعمولات (بالدولار)
