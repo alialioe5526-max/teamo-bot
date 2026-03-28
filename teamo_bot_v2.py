@@ -1,6 +1,7 @@
 import logging
 import sqlite3
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
@@ -10,6 +11,12 @@ from telegram.ext import (
 BOT_TOKEN    = "8578221142:AAFe_J9s1EYZwyb1ao5jffZwo5nFy_hpAK0"
 ADMIN_ID     = 269900681
 WALLET_TRC20 = "TPAgKfYzRdK83Qocc4gXvEVu4jPKfeuer5"
+TIMEZONE     = ZoneInfo("Asia/Baghdad")  # توقيت العراق GMT+3
+
+# أوقات المهام: 3 عصر → 6 مغرب (15:00 → 18:00)
+TASK_OPEN_HOUR  = 15
+TASK_CLOSE_HOUR = 18
+TASK_OFF_DAYS   = [5, 6]  # السبت=5, الأحد=6
 
 REFERRAL_COMMISSIONS = {
     "A1": [35, 17, 8,  4,  2,  1],
@@ -31,6 +38,7 @@ PACKAGES = {
 
 MIN_WITHDRAW = 10
 ST_PHONE = "WAITING_PHONE"
+ST_REFERRED_MSG = "REFERRED_MSG"
 ST_RECEIPT = "WAITING_RECEIPT"
 ST_WALLET = "WAITING_WALLET"
 ST_WITHDRAW = "WAITING_WITHDRAW"
@@ -40,6 +48,37 @@ ST_ADDLINK = "WAITING_ADDLINK"
 
 logging.basicConfig(level=logging.INFO)
 
+# ===================== وقت المهام =====================
+def get_now():
+    return datetime.now(TIMEZONE)
+
+def is_tasks_open():
+    now = get_now()
+    if now.weekday() in TASK_OFF_DAYS:
+        return False, "weekend"
+    if now.hour < TASK_OPEN_HOUR:
+        return False, "not_yet"
+    if now.hour >= TASK_CLOSE_HOUR:
+        return False, "closed"
+    return True, "open"
+
+def is_withdraw_open():
+    now = get_now()
+    if now.weekday() in TASK_OFF_DAYS:
+        return False
+    return True
+
+def tasks_status_text():
+    open_, reason = is_tasks_open()
+    if open_:
+        return "🟢 المهام مفتوحة الآن حتى الساعة 6 مساءً"
+    if reason == "weekend":
+        return "🔴 المهام مغلقة (السبت والأحد إجازة)"
+    if reason == "not_yet":
+        return "🟡 المهام تفتح الساعة 3 عصراً"
+    return "🔴 المهام أُغلقت — تعود غداً الساعة 3 عصراً"
+
+# ===================== قاعدة البيانات =====================
 def init_db():
     conn = sqlite3.connect("teamo.db")
     c = conn.cursor()
@@ -75,8 +114,7 @@ def init_db():
     c.execute("SELECT COUNT(*) FROM task_links")
     if c.fetchone()[0] == 0:
         c.execute("INSERT INTO task_links (url) VALUES (?)", ("https://youtube.com/watch?v=dQw4w9WgXcQ",))
-    conn.commit()
-    conn.close()
+    conn.commit(); conn.close()
 
 def db(): return sqlite3.connect("teamo.db")
 
@@ -95,8 +133,7 @@ def next_serial():
     conn = db(); c = conn.cursor()
     c.execute("UPDATE user_counter SET count=count+1 WHERE id=1")
     c.execute("SELECT count FROM user_counter WHERE id=1")
-    n = c.fetchone()[0]; conn.commit(); conn.close()
-    return n
+    n = c.fetchone()[0]; conn.commit(); conn.close(); return n
 
 def get_user(user_id):
     conn = db(); c = conn.cursor()
@@ -154,6 +191,8 @@ def get_task_link():
     return r[0] if r else "https://youtube.com"
 
 def complete_task(user_id):
+    open_, reason = is_tasks_open()
+    if not open_: return False, reason
     today = date.today().isoformat(); user = get_user(user_id)
     if not user or not user[6]: return False, "no_package"
     package = PACKAGES[user[6]]; max_tasks, per_task = package["tasks"], package["per_task"]
@@ -181,6 +220,7 @@ def get_stats():
     c.execute("SELECT SUM(balance) FROM users"); tb = c.fetchone()[0] or 0
     conn.close(); return total, pp, wp, tb
 
+# ===================== لوحات =====================
 def main_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📋 مهامي اليومية", callback_data="daily_tasks"),
@@ -202,26 +242,38 @@ def admin_keyboard():
         [InlineKeyboardButton("📢 رسالة جماعية", callback_data="adm_broadcast")]
     ])
 
+# ===================== /start =====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     args = context.args
     referred_by = None
+    referrer = None
     if args:
         ref_uid = get_user_by_refcode(args[0])
         if ref_uid and ref_uid != user.id:
             referred_by = ref_uid
+            referrer = get_user(ref_uid)
+
     existing = get_user(user.id)
     if not existing:
         context.user_data["referred_by"] = referred_by
         context.user_data["state"] = ST_PHONE
+
+        # رسالة الترحيب مع إشعار الإحالة
+        ref_msg = ""
+        if referrer:
+            ref_msg = (f"\n🎁 *دخلت عبر دعوة:*\n"
+                      f"👤 {referrer[3]} | رقم #{referrer[1]:04d}\n\n")
+
         await update.message.reply_text(
             f"👋 *أهلاً وسهلاً بك في TEAMO!*\n\n"
-            f"🚀 منصة المهمات اليومية والربح الحقيقي\n\n"
+            f"🚀 منصة المهمات اليومية والربح الحقيقي\n"
             f"━━━━━━━━━━━━━━━━\n"
-            f"💎 أكمل مهامك اليومية واربح يومياً\n"
+            f"💎 أكمل مهامك اليومية واربح\n"
             f"👥 ادعُ أصدقاءك واربح من 6 مستويات\n"
             f"💸 اسحب أرباحك عبر USDT TRC20\n"
-            f"━━━━━━━━━━━━━━━━\n\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"{ref_msg}"
             f"📱 للتسجيل أرسل *رقم هاتفك* مع رمز الدولة:\n\n"
             f"🇮🇶 `+9647701234567`\n"
             f"🇸🇦 `+966501234567`\n"
@@ -229,12 +281,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         return
+
     db_user = get_user(user.id)
     balance = db_user[5]; package = db_user[6]
     today_row = get_today_tasks(user.id)
     done = today_row[3] if today_row and package else 0
     total = PACKAGES[package]["tasks"] if package else 0
     today_earned = today_row[4] if today_row else 0.0
+
     await update.message.reply_text(
         f"👋 أهلاً *{user.first_name}!*\n\n"
         f"🆔 رقمك: *#{db_user[1]:04d}*\n"
@@ -242,10 +296,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💰 رصيدك: *{balance:.2f}$*\n"
         f"📋 مهام اليوم: *{done}/{total}*\n"
         f"💵 ربح اليوم: *{today_earned:.2f}$*\n\n"
+        f"{tasks_status_text()}\n\n"
         f"اختر من القائمة 👇",
         reply_markup=main_keyboard(), parse_mode="Markdown"
     )
 
+# ===================== معالج الرسائل =====================
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     state = context.user_data.get("state")
@@ -253,7 +309,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if state == ST_PHONE:
         if not text.startswith("+") or len(text) < 10:
-            await update.message.reply_text("❌ رقم غير صحيح!\nأرسل مثلاً: `+9647701234567`", parse_mode="Markdown")
+            await update.message.reply_text("❌ رقم غير صحيح!\nمثال: `+9647701234567`", parse_mode="Markdown")
             return
         referred_by = context.user_data.get("referred_by")
         u = update.effective_user
@@ -261,7 +317,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         db_user = get_user(user_id)
         await update.message.reply_text(
-            f"✅ *تم التسجيل بنجاح!*\n\n🆔 رقمك: *#{db_user[1]:04d}*\n📱 هاتفك: `{text}`\n\nاختر باقة لتبدأ الربح 💰",
+            f"✅ *تم التسجيل بنجاح!*\n\n"
+            f"🆔 رقمك: *#{db_user[1]:04d}*\n"
+            f"📱 هاتفك: `{text}`\n\n"
+            f"اختر باقة لتبدأ الربح 💰",
             reply_markup=main_keyboard(), parse_mode="Markdown"
         )
 
@@ -277,28 +336,37 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                   (user_id, pkg_name, PACKAGES[pkg_name]["price"], file_id, datetime.now().isoformat()))
         request_id = c.lastrowid; conn.commit(); conn.close()
         u = get_user(user_id)
-        caption = (f"🧾 *طلب شراء #{request_id}*\n\n👤 {u[3]} | #{u[1]:04d}\n📱 {u[4]}\n📦 {pkg_name} — {PACKAGES[pkg_name]['price']}$")
+        caption = (f"🧾 *طلب شراء #{request_id}*\n\n"
+                   f"👤 {u[3]} | #{u[1]:04d}\n"
+                   f"📱 {u[4]}\n"
+                   f"📦 {pkg_name} — {PACKAGES[pkg_name]['price']}$")
         kb = InlineKeyboardMarkup([[
             InlineKeyboardButton(f"✅ قبول #{request_id}", callback_data=f"adm_approve_{request_id}"),
             InlineKeyboardButton(f"❌ رفض #{request_id}", callback_data=f"adm_reject_{request_id}")
         ]])
         try:
-            if update.message.photo: await context.bot.send_photo(ADMIN_ID, file_id, caption=caption, reply_markup=kb, parse_mode="Markdown")
-            else: await context.bot.send_document(ADMIN_ID, file_id, caption=caption, reply_markup=kb, parse_mode="Markdown")
+            if update.message.photo:
+                await context.bot.send_photo(ADMIN_ID, file_id, caption=caption, reply_markup=kb, parse_mode="Markdown")
+            else:
+                await context.bot.send_document(ADMIN_ID, file_id, caption=caption, reply_markup=kb, parse_mode="Markdown")
         except: pass
         context.user_data.clear()
-        await update.message.reply_text("✅ *تم استلام الوصل!*\n\n⏳ سيتم التفعيل خلال 24 ساعة",
-            reply_markup=main_keyboard(), parse_mode="Markdown")
+        await update.message.reply_text(
+            "✅ *تم استلام الوصل!*\n\n⏳ سيتم التفعيل خلال 24 ساعة\n📩 ستصلك إشعار فور التفعيل",
+            reply_markup=main_keyboard(), parse_mode="Markdown"
+        )
 
     elif state == ST_WALLET:
         if len(text) < 30:
-            await update.message.reply_text("❌ عنوان غير صحيح."); return
+            await update.message.reply_text("❌ عنوان غير صحيح. أعد المحاولة:"); return
         conn = db(); c = conn.cursor()
         c.execute("UPDATE users SET wallet=? WHERE user_id=?", (text, user_id))
         conn.commit(); conn.close()
         context.user_data.clear()
-        await update.message.reply_text(f"✅ *تم حفظ محفظتك!*\n\n`{text}`",
-            reply_markup=main_keyboard(), parse_mode="Markdown")
+        await update.message.reply_text(
+            f"✅ *تم حفظ محفظتك!*\n\n`{text}`\n\nاضغط لنسخها 👆",
+            reply_markup=main_keyboard(), parse_mode="Markdown"
+        )
 
     elif state == ST_WITHDRAW:
         user = get_user(user_id); balance = user[5]; wallet = user[7]
@@ -321,12 +389,19 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]])
         try:
             await context.bot.send_message(ADMIN_ID,
-                f"💸 *طلب سحب #{request_id}*\n\n👤 {u[3]} | #{u[1]:04d}\n📱 {u[4]}\n💰 *{amount:.2f}$*\n👛 `{wallet}`",
-                reply_markup=kb, parse_mode="Markdown")
+                f"💸 *طلب سحب #{request_id}*\n\n"
+                f"👤 {u[3]} | #{u[1]:04d}\n"
+                f"📱 {u[4]}\n"
+                f"💰 *{amount:.2f}$*\n"
+                f"👛 `{wallet}`",
+                reply_markup=kb, parse_mode="Markdown"
+            )
         except: pass
         context.user_data.clear()
-        await update.message.reply_text(f"✅ *تم إرسال طلب السحب!*\n\nالمبلغ: *{amount:.2f}$*\n⏳ المعالجة خلال 24-48 ساعة",
-            reply_markup=main_keyboard(), parse_mode="Markdown")
+        await update.message.reply_text(
+            f"✅ *تم إرسال طلب السحب!*\n\nالمبلغ: *{amount:.2f}$*\n⏳ المعالجة خلال 24-48 ساعة",
+            reply_markup=main_keyboard(), parse_mode="Markdown"
+        )
 
     elif state == ST_BROADCAST and user_id == ADMIN_ID:
         conn = db(); c = conn.cursor()
@@ -342,8 +417,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(text) < 20:
             await update.message.reply_text("❌ عنوان غير صحيح."); return
         set_setting("wallet", text); context.user_data.clear()
-        await update.message.reply_text(f"✅ تم تغيير محفظة الاستلام:\n`{text}`",
-            reply_markup=admin_keyboard(), parse_mode="Markdown")
+        await update.message.reply_text(
+            f"✅ تم تغيير محفظة الاستلام:\n`{text}`",
+            reply_markup=admin_keyboard(), parse_mode="Markdown"
+        )
 
     elif state == ST_ADDLINK and user_id == ADMIN_ID:
         if not text.startswith("http"):
@@ -353,34 +430,65 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit(); conn.close(); context.user_data.clear()
         await update.message.reply_text(f"✅ تمت إضافة الرابط:\n{text}", reply_markup=admin_keyboard())
 
+# ===================== معالج الأزرار =====================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
     user_id = query.from_user.id; data = query.data
 
+    # ── المهام اليومية ──
     if data == "daily_tasks":
         user = get_user(user_id)
         if not user or not user[6]:
-            await query.edit_message_text("❌ *ليس لديك باقة مفعّلة*",
+            await query.edit_message_text(
+                "❌ *ليس لديك باقة مفعّلة*\n\nاشترِ باقة لتبدأ!",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📦 اشترِ باقة", callback_data="packages")],
                     [InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]
                 ]), parse_mode="Markdown"); return
-        pkg = PACKAGES[user[6]]; today_row = get_today_tasks(user_id)
-        done = today_row[3] if today_row else 0; total = pkg["tasks"]
+
+        open_, reason = is_tasks_open()
+        pkg = PACKAGES[user[6]]
+        today_row = get_today_tasks(user_id)
+        done = today_row[3] if today_row else 0
+        total = pkg["tasks"]
         keyboard = []
-        text = (f"📋 *مهامك اليومية*\n\nباقتك: *{user[6]}*\nالتقدم: *{done}/{total}* ✦\n"
-                f"ربح المهمة: *{pkg['per_task']:.2f}$*\nإجمالي اليوم: *{pkg['daily']:.2f}$*\n\n")
-        if done >= total: text += "🎉 أنجزت جميع مهامك! عد غداً."
+
+        text = (f"📋 *مهامك اليومية*\n\n"
+                f"باقتك: *{user[6]}*\n"
+                f"التقدم: *{done}/{total}* ✦\n"
+                f"ربح المهمة: *{pkg['per_task']:.2f}$*\n"
+                f"إجمالي اليوم: *{pkg['daily']:.2f}$*\n\n"
+                f"{tasks_status_text()}\n\n")
+
+        if done >= total:
+            text += "🎉 أنجزت جميع مهامك اليوم!"
+        elif not open_:
+            if reason == "weekend":
+                text += "⛔ السبت والأحد إجازة — عد يوم الاثنين!"
+            elif reason == "not_yet":
+                text += "⏰ المهام تفتح الساعة *3 عصراً*"
+            else:
+                text += "🔒 المهام أُغلقت — تعود غداً الساعة *3 عصراً*"
         else:
-            text += "اضغط لإكمال مهمتك 👇"
             keyboard.append([InlineKeyboardButton(f"▶️ ابدأ المهمة {done+1}", callback_data="start_task")])
+
         keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_main")])
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
     elif data == "start_task":
+        open_, reason = is_tasks_open()
+        if not open_:
+            await query.edit_message_text(
+                f"⛔ *المهام مغلقة الآن*\n\n{tasks_status_text()}",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="daily_tasks")]]),
+                parse_mode="Markdown"); return
         link = get_task_link()
         await query.edit_message_text(
-            "📌 *مهمتك اليومية*\n\n1️⃣ شاهد الفيديو 30 ثانية\n2️⃣ اشترك بالقناة\n3️⃣ أعجب بالفيديو\n\nثم اضغط *تأكيد* 👇",
+            "📌 *مهمتك اليومية*\n\n"
+            "1️⃣ شاهد الفيديو 30 ثانية\n"
+            "2️⃣ اشترك بالقناة\n"
+            "3️⃣ أعجب بالفيديو\n\n"
+            "ثم اضغط *تأكيد* 👇",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🎬 افتح الفيديو", url=link)],
                 [InlineKeyboardButton("✅ تأكيد إكمال المهمة", callback_data="confirm_task")],
@@ -392,37 +500,54 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if success:
             done, total, per_task, earned = result
             keyboard = []
-            if done < total: keyboard.append([InlineKeyboardButton("📋 المهمة التالية", callback_data="daily_tasks")])
+            if done < total:
+                keyboard.append([InlineKeyboardButton("📋 المهمة التالية", callback_data="daily_tasks")])
             keyboard += [[InlineKeyboardButton("💰 رصيدي", callback_data="wallet")],
                          [InlineKeyboardButton("🏠 الرئيسية", callback_data="back_main")]]
             await query.edit_message_text(
-                f"✅ *مبروك!*\n\n💰 ربحت: *{per_task:.2f}$*\n📋 *{done}/{total}*\n💵 ربح اليوم: *{earned:.2f}$*\n\n"
+                f"✅ *مبروك!*\n\n💰 ربحت: *{per_task:.2f}$*\n📋 التقدم: *{done}/{total}*\n💵 ربح اليوم: *{earned:.2f}$*\n\n"
                 f"{'🎉 أنجزت جميع مهامك!' if done >= total else '💪 استمر!'}",
                 reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        elif result in ("weekend", "not_yet", "closed"):
+            await query.edit_message_text(
+                f"⛔ *المهام مغلقة الآن*\n\n{tasks_status_text()}",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]),
+                parse_mode="Markdown")
         elif result == "max_reached":
-            await query.edit_message_text("⚠️ أكملت جميع مهماتك اليوم! عد غداً 🌟",
+            await query.edit_message_text("⚠️ أكملت جميع مهماتك اليوم!\nعد غداً 🌟",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]))
         else:
             await query.edit_message_text("❌ ليس لديك باقة!",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📦 الباقات", callback_data="packages")]]))
 
+    # ── المحفظة ──
     elif data == "wallet":
         user = get_user(user_id); balance = user[5]; wallet = user[7]
         conn = db(); c = conn.cursor()
         c.execute("SELECT SUM(amount) FROM referral_earnings WHERE user_id=?", (user_id,))
         ref_earned = c.fetchone()[0] or 0; conn.close()
-        keyboard = [[InlineKeyboardButton("✏️ تغيير المحفظة" if wallet else "➕ أضف محفظة TRC20", callback_data="add_wallet")],
-                    [InlineKeyboardButton("💸 سحب الأرباح", callback_data="withdraw")],
-                    [InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]
+        wallet_text = f"`{wallet}`\n_(اضغط للنسخ)_" if wallet else "_لم تُضف بعد_"
+        keyboard = [
+            [InlineKeyboardButton("✏️ تغيير المحفظة" if wallet else "➕ أضف محفظة TRC20", callback_data="add_wallet")],
+            [InlineKeyboardButton("💸 سحب الأرباح", callback_data="withdraw")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]
+        ]
         await query.edit_message_text(
-            f"💰 *محفظتي*\n\n💎 الرصيد: *{balance:.2f}$*\n👥 أرباح الإحالات: *{ref_earned:.2f}$*\n\n"
-            f"👛 محفظة TRC20:\n`{wallet or 'لم تُضف بعد'}`",
-            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            f"💰 *محفظتي*\n\n"
+            f"💎 الرصيد: *{balance:.2f}$*\n"
+            f"👥 أرباح الإحالات: *{ref_earned:.2f}$*\n\n"
+            f"👛 محفظة TRC20:\n{wallet_text}",
+            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+        )
 
     elif data == "add_wallet":
         context.user_data["state"] = ST_WALLET
-        await query.edit_message_text("👛 *تغيير محفظة TRC20*\n\nأرسل عنوان محفظتك:", parse_mode="Markdown")
+        await query.edit_message_text(
+            "👛 *تغيير محفظة TRC20*\n\nأرسل عنوان محفظتك:\n\n⚠️ تأكد من صحة العنوان",
+            parse_mode="Markdown"
+        )
 
+    # ── الباقات ──
     elif data == "packages":
         keyboard = []
         for name, pkg in PACKAGES.items():
@@ -436,11 +561,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pkg_name = data[4:]; pkg = PACKAGES[pkg_name]
         commissions = REFERRAL_COMMISSIONS[pkg_name]; wallet = get_setting("wallet")
         await query.edit_message_text(
-            f"📦 *باقة {pkg_name}*\n\n💰 السعر: *{pkg['price']}$*\n📋 *{pkg['tasks']} مهام/يوم*\n"
-            f"💵 ربح المهمة: *{pkg['per_task']:.2f}$*\n📈 اليومي: *{pkg['daily']:.2f}$*\n\n"
-            f"👥 *عمولات الإحالة:*\nL1:{commissions[0]}$ L2:{commissions[1]}$ L3:{commissions[2]}$\n"
-            f"L4:{commissions[3]}$ L5:{commissions[4]}$ L6:{commissions[5]}$\n\n"
-            f"أرسل *{pkg['price']} USDT TRC20* على:\n`{wallet}`",
+            f"📦 *باقة {pkg_name}*\n\n"
+            f"💰 السعر: *{pkg['price']}$*\n"
+            f"📋 *{pkg['tasks']} مهام/يوم*\n"
+            f"💵 ربح المهمة: *{pkg['per_task']:.2f}$*\n"
+            f"📈 الربح اليومي: *{pkg['daily']:.2f}$*\n\n"
+            f"👥 *عمولات الإحالة:*\n"
+            f"L1:{commissions[0]}$ | L2:{commissions[1]}$ | L3:{commissions[2]}$\n"
+            f"L4:{commissions[3]}$ | L5:{commissions[4]}$ | L6:{commissions[5]}$\n\n"
+            f"أرسل *{pkg['price']} USDT TRC20* على:\n`{wallet}`\n_(اضغط للنسخ)_",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("📤 أرسل وصل الدفع", callback_data=f"send_receipt_{pkg_name}")],
                 [InlineKeyboardButton("🔙 رجوع", callback_data="packages")]
@@ -450,8 +579,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pkg_name = data[13:]
         context.user_data["buying_package"] = pkg_name
         context.user_data["state"] = ST_RECEIPT
-        await query.edit_message_text(f"📤 *وصل الدفع — باقة {pkg_name}*\n\nأرسل صورة الوصل الآن 👇", parse_mode="Markdown")
+        await query.edit_message_text(
+            f"📤 *وصل الدفع — باقة {pkg_name}*\n\nأرسل صورة الوصل الآن 👇\n\n⏳ سيتم التفعيل خلال 24 ساعة",
+            parse_mode="Markdown"
+        )
 
+    # ── الإحالات ──
     elif data == "referrals":
         bot_username = (await context.bot.get_me()).username
         user = get_user(user_id); ref_code = user[8]
@@ -463,16 +596,31 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_earned = c.fetchone()[0] or 0
         c.execute("SELECT level,COUNT(*),SUM(amount) FROM referral_earnings WHERE user_id=? GROUP BY level", (user_id,))
         levels = {r[0]: (r[1], r[2] or 0) for r in c.fetchall()}; conn.close()
-        text = (f"👥 *إحالاتي*\n\n🔗 رابطك:\n`{ref_link}`\n🎟 كودك: `{ref_code}`\n\n"
-                f"👤 مباشر: *{direct}* | 💰 الإجمالي: *{total_earned:.2f}$*\n\n📊 *التفصيل:*\n")
+
+        text = (f"👥 *إحالاتي*\n\n"
+                f"🔗 رابط الدعوة:\n`{ref_link}`\n_(اضغط للنسخ)_\n\n"
+                f"🎟 كود الإحالة:\n`{ref_code}`\n_(اضغط للنسخ)_\n\n"
+                f"👤 إحالات مباشرة: *{direct}*\n"
+                f"💰 إجمالي الأرباح: *{total_earned:.2f}$*\n\n"
+                f"📊 *التفصيل:*\n")
         for lvl in range(1, 7):
             count, earned = levels.get(lvl, (0, 0))
             text += f"L{lvl}: {count} شخص — {earned:.2f}$\n"
+
         await query.edit_message_text(text,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📋 نسخ الرابط", switch_inline_query=ref_link)],
+                [InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]
+            ]),
             parse_mode="Markdown")
 
+    # ── السحب ──
     elif data == "withdraw":
+        if not is_withdraw_open():
+            await query.edit_message_text(
+                "⛔ *السحب غير متاح*\n\nالسحب مغلق يوم السبت والأحد\nعد يوم الاثنين 📅",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]),
+                parse_mode="Markdown"); return
         user = get_user(user_id)
         if not user or not user[7]:
             await query.edit_message_text("❌ أضف محفظتك أولاً!",
@@ -481,33 +629,57 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     [InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]])); return
         context.user_data["state"] = ST_WITHDRAW
         await query.edit_message_text(
-            f"💸 *سحب الأرباح*\n\nالرصيد: *{user[5]:.2f}$*\nالحد الأدنى: *{MIN_WITHDRAW}$*\n"
-            f"المحفظة: `{user[7]}`\n\nأرسل المبلغ:", parse_mode="Markdown")
+            f"💸 *سحب الأرباح*\n\n"
+            f"الرصيد: *{user[5]:.2f}$*\n"
+            f"الحد الأدنى: *{MIN_WITHDRAW}$*\n"
+            f"المحفظة: `{user[7]}`\n_(اضغط للنسخ)_\n\n"
+            f"أرسل المبلغ الذي تريد سحبه:",
+            parse_mode="Markdown"
+        )
 
+    # ── المساعدة ──
     elif data == "help":
         await query.edit_message_text(
-            "ℹ️ *كيفية الاستخدام*\n\n1️⃣ اشترِ باقة وأرسل وصل الدفع\n2️⃣ انتظر التفعيل (24 ساعة)\n"
-            "3️⃣ أكمل مهامك اليومية\n4️⃣ ادعُ أصدقاءك واربح من 6 مستويات\n5️⃣ اسحب عبر USDT TRC20\n\n"
-            f"💸 الحد الأدنى: {MIN_WITHDRAW}$",
+            "ℹ️ *كيفية الاستخدام*\n\n"
+            "1️⃣ اشترِ باقة وأرسل وصل الدفع\n"
+            "2️⃣ انتظر التفعيل (24 ساعة)\n"
+            "3️⃣ أكمل مهامك اليومية\n"
+            "4️⃣ ادعُ أصدقاءك واربح من 6 مستويات\n"
+            "5️⃣ اسحب عبر USDT TRC20\n\n"
+            f"⏰ *أوقات المهام:*\n"
+            f"3 عصراً — 6 مساءً (بتوقيت بغداد)\n"
+            f"السبت والأحد إجازة\n\n"
+            f"💸 الحد الأدنى للسحب: {MIN_WITHDRAW}$",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]),
             parse_mode="Markdown")
 
+    # ── رجوع ──
     elif data == "back_main":
         user = get_user(user_id); balance = user[5]; pkg = user[6]
         today_row = get_today_tasks(user_id)
         done = today_row[3] if today_row else 0
         total = PACKAGES[pkg]["tasks"] if pkg else 0
         await query.edit_message_text(
-            f"🏠 *القائمة الرئيسية*\n\n🆔 رقمك: *#{user[1]:04d}*\n💎 باقتك: *{pkg or 'لا توجد'}*\n"
-            f"💰 رصيدك: *{balance:.2f}$*\n📋 مهام اليوم: *{done}/{total}*\n\nاختر من القائمة 👇",
-            reply_markup=main_keyboard(), parse_mode="Markdown")
+            f"🏠 *القائمة الرئيسية*\n\n"
+            f"🆔 رقمك: *#{user[1]:04d}*\n"
+            f"💎 باقتك: *{pkg or 'لا توجد'}*\n"
+            f"💰 رصيدك: *{balance:.2f}$*\n"
+            f"📋 مهام اليوم: *{done}/{total}*\n\n"
+            f"{tasks_status_text()}\n\n"
+            f"اختر من القائمة 👇",
+            reply_markup=main_keyboard(), parse_mode="Markdown"
+        )
 
-    # ══ أدمن ══
+    # ══════════ أدمن ══════════
     elif data == "adm_stats" and user_id == ADMIN_ID:
         total, pp, wp, tb = get_stats(); wallet = get_setting("wallet")
         await query.edit_message_text(
-            f"📊 *الإحصائيات*\n\n👥 المستخدمون: *{total}*\n⏳ شراء معلق: *{pp}*\n"
-            f"💸 سحب معلق: *{wp}*\n💰 إجمالي الأرصدة: *{tb:.2f}$*\n\n👛 محفظة الاستلام:\n`{wallet}`",
+            f"📊 *الإحصائيات*\n\n"
+            f"👥 المستخدمون: *{total}*\n"
+            f"⏳ شراء معلق: *{pp}*\n"
+            f"💸 سحب معلق: *{wp}*\n"
+            f"💰 إجمالي الأرصدة: *{tb:.2f}$*\n\n"
+            f"👛 محفظة الاستلام:\n`{wallet}`",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="adm_back")]]),
             parse_mode="Markdown")
 
@@ -566,7 +738,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "adm_wallet" and user_id == ADMIN_ID:
         context.user_data["state"] = ST_SETWALLET; wallet = get_setting("wallet")
-        await query.edit_message_text(f"👛 *تغيير محفظة الاستلام*\n\nالحالية: `{wallet}`\n\nأرسل العنوان الجديد:", parse_mode="Markdown")
+        await query.edit_message_text(
+            f"👛 *تغيير محفظة الاستلام*\n\nالحالية:\n`{wallet}`\n\nأرسل العنوان الجديد:",
+            parse_mode="Markdown")
 
     elif data == "adm_links" and user_id == ADMIN_ID:
         conn = db(); c = conn.cursor()
@@ -624,10 +798,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         distribute_referral_commissions(uid, pkg_name)
         try:
             await context.bot.send_message(uid,
-                f"🎉 *تم تفعيل باقتك {pkg_name}!*\n\nابدأ بإكمال مهامك اليومية الآن 💰",
+                f"🎉 *تم تفعيل باقتك {pkg_name}!*\n\nابدأ بإكمال مهامك اليومية الآن 💰\n\n"
+                f"⏰ المهام تفتح يومياً من 3 عصراً حتى 6 مساءً",
                 reply_markup=main_keyboard(), parse_mode="Markdown")
         except: pass
-        await query.edit_message_text(f"✅ تم تفعيل {pkg_name} للمستخدم #{request_id}", reply_markup=admin_keyboard())
+        await query.edit_message_text(f"✅ تم تفعيل {pkg_name} — طلب #{request_id}", reply_markup=admin_keyboard())
 
     elif data.startswith("adm_reject_") and user_id == ADMIN_ID:
         request_id = int(data[11:])
@@ -652,7 +827,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit(); conn.close()
         try:
             await context.bot.send_message(uid,
-                f"✅ *تم إرسال سحبك!*\n\nالمبلغ: *{amount:.2f}$*\nالمحفظة: `{wallet}`",
+                f"✅ *تم إرسال سحبك!*\n\nالمبلغ: *{amount:.2f}$*\nالمحفظة: `{wallet}`\n\n⏳ تحقق خلال 24-48 ساعة",
                 parse_mode="Markdown")
         except: pass
         await query.edit_message_text(f"✅ تم قبول السحب #{wid} — {amount}$", reply_markup=admin_keyboard())
@@ -671,6 +846,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: pass
         await query.edit_message_text(f"❌ تم رفض السحب #{wid} وإعادة الرصيد", reply_markup=admin_keyboard())
 
+# ===================== أمر الأدمن =====================
 async def admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     total, pp, wp, tb = get_stats()
@@ -678,6 +854,7 @@ async def admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👑 *لوحة الأدمن*\n\n👥 المستخدمون: *{total}*\n⏳ طلبات شراء: *{pp}*\n💸 طلبات سحب: *{wp}*\n💰 الأرصدة: *{tb:.2f}$*",
         reply_markup=admin_keyboard(), parse_mode="Markdown")
 
+# ===================== تشغيل =====================
 def main():
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
